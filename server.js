@@ -5,57 +5,54 @@ import OpenAI from "openai";
 
 const app = express();
 
-// 🔒 Allow requests (you can restrict later to your domain)
 app.use(cors());
 app.use(express.json());
 
-// ✅ Secure API key from environment
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// 🧠 AI SYSTEM PROMPT
 const SYSTEM_PROMPT = `
 You are Baraq Living Assistant, a luxury ecommerce sales advisor.
 
-STRICT RULES (DO NOT BREAK):
-- Maximum 2 sentences ONLY
-- Recommend ONLY 1 product unless user asks to compare
+STRICT RULES:
+- Maximum 2 sentences only
+- Recommend only 1 product unless the customer asks to compare
 - No paragraphs
-- Do NOT start with "The" or "This"
-- Do NOT say "I recommend" or "consider"
+- Do not reset the conversation
+- Keep context from previous messages
+- Always guide toward one clear product choice
 - Always end with a short buying question
-- Prefer questions that guide a choice (color, style)
+- Prefer questions that narrow color, frame, or style
 
 STYLE:
 - Calm, confident, minimal
-- Sounds like high-end in-store advisor
+- High-end in-store advisor
 - Direct and refined
 - No robotic phrasing
 
 SALES BEHAVIOR:
 - Identify intent immediately
-- Lead with product name naturally
+- Lead with the product name naturally
 - Give one strong benefit
 - Guide toward purchase
 
 PRODUCT LOGIC:
-Driving -> Aviator Pro (clear anti-glare vision)
-Everyday -> Classic Round (clean, balanced style)
-Business -> Executive Square (sharp, professional presence)
-Modern -> Urban Edge (bold, contemporary look)
+- Driving -> Aviator Pro
+- Everyday -> Classic Round
+- Business -> Executive Square
+- Modern or nightlife -> Urban Edge
 
 CUSTOMIZATION:
-- Suggest 1–2 colors when relevant (black, gold, silver, clear)
-- Do NOT list multiple products
+- Suggest 1 or 2 colors when relevant: black, gold, silver, clear
+- If the user asks about lenses that go dark in sunlight, treat that as photochromic lenses
+- If the user gives a short reply like "yes", "black", "gold", "clear", "frame", or "show me", continue from prior context and do not ask to restart
 `;
 
-// ✅ BASIC TEST ROUTE
 app.get("/ping", (req, res) => {
   res.send("pong");
 });
 
-// ✅ AI TEST ROUTE (no frontend needed)
 app.get("/test-ai", async (req, res) => {
   try {
     const response = await client.responses.create({
@@ -72,38 +69,58 @@ app.get("/test-ai", async (req, res) => {
   }
 });
 
-// ✅ MAIN CHAT ROUTE
 app.post("/api/baraq-chat", async (req, res) => {
   try {
-    const userMessage = req.body?.message || "";
+    const messages = Array.isArray(req.body?.messages)
+      ? req.body.messages
+      : null;
+    const singleMessage =
+      typeof req.body?.message === "string" ? req.body.message.trim() : "";
 
-    if (!userMessage) {
-      return res.json({ reply: "What are you looking for today?" });
+    if ((!messages || messages.length === 0) && !singleMessage) {
+      return res.json({ reply: "What style are you leaning toward?" });
+    }
+
+    let input;
+
+    if (messages && messages.length > 0) {
+      input = messages
+        .filter(
+          (msg) =>
+            msg &&
+            typeof msg.content === "string" &&
+            (msg.role === "user" || msg.role === "assistant"),
+        )
+        .map((msg) => ({
+          role: msg.role,
+          content: msg.content,
+        }));
+    } else {
+      input = singleMessage;
     }
 
     const response = await client.responses.create({
       model: "gpt-4o-mini",
       instructions: SYSTEM_PROMPT,
-      input: userMessage,
-      max_output_tokens: 60,
+      input,
+      max_output_tokens: 80,
     });
 
-    res.json({ reply: response.output_text });
+    res.json({
+      reply: response.output_text || "What color are you leaning toward?",
+    });
   } catch (error) {
     console.error("CHAT ERROR:", error);
     res.status(500).json({ reply: "Something went wrong" });
   }
 });
 
-// ✅ ROOT ROUTE (health check)
 app.get("/", (req, res) => {
   res.send("Baraq AI is running");
 });
 
-// 🔥 IMPORTANT: Render requires this
 const PORT = process.env.PORT || 3000;
 
-// 🚀 START SERVER
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Baraq AI running on port ${PORT}`);
 });
